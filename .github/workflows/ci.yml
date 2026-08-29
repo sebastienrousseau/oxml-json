@@ -1,0 +1,217 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # No `branches:` filter on `pull_request`. With one, a pull request
+  # whose base is another branch -- a stacked PR, the natural shape for
+  # a change that builds on an unmerged one -- matches nothing and gets
+  # **no checks at all**. Not a red build: an empty one, which reads as
+  # "nothing to report" rather than "nothing ran".
+  #
+  # `push` stays pinned to `main` so a branch does not build twice, once
+  # for the push and once for its pull request.
+  pull_request:
+    branches: ['**']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo test --all-features
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo run --example parse_and_build
+
+
+  fuzz:
+    name: Fuzz (analyse)
+    runs-on: ubuntu-latest
+    # cargo-fuzz needs nightly for its sanitiser flags, and
+    # `rust-toolchain.toml` overrides whatever the toolchain action
+    # installed. Without this the job runs under the pinned 1.98.0 and
+    # fails with "failed to run `rustc` to learn about target-specific
+    # information", which does not name the cause.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [parse]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # cargo-fuzz needs nightly for the sanitiser flags.
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo install cargo-fuzz --locked
+      # Seeds are tracked; the grown corpus is not. Starting from the
+      # seeds each run keeps the job reproducible rather than dependent
+      # on whatever a previous run happened to discover.
+      - name: Seed the corpus
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }}
+          cp fuzz/seeds/${{ matrix.target }}/* fuzz/corpus/${{ matrix.target }}/
+      - run: >
+          cargo fuzz run ${{ matrix.target }}
+          -- -max_total_time=300 -print_final_stats=1
+
+      # A crash is the whole point of the job; losing the input that
+      # caused it would mean knowing only that something broke.
+      - name: Upload any crash
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # A requirement nothing verifies is a request. This checks every
+      # commit the pull request adds, and reports all failures at once
+      # rather than the first -- rewriting history twice because the
+      # second bad commit was hidden by the first is a waste of
+      # everyone's afternoon.
+      - name: Every commit must carry a Signed-off-by
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          [ -n "$base" ] || { echo "not a pull request; nothing to check"; exit 0; }
+
+          fail=0
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            author="$(git log -1 --format='%an <%ae>' "$sha")"
+            # Bots cannot sign off, and requiring it of them would
+            # block every Dependabot update on a technicality.
+            case "$author" in
+              *"[bot]"*|*"dependabot"*) continue ;;
+            esac
+            if ! git log -1 --format='%B' "$sha" | grep -qi "^Signed-off-by: .\+ <.\+@.\+>"; then
+              echo "::error::$(git log -1 --format='%h %s' "$sha") has no Signed-off-by"
+              fail=1
+            fi
+          done <<< "$(git rev-list "$base..$head")"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "Sign off with: git commit -s  (or: git rebase --signoff $base)"
+            echo "See DCO in the repository root for what you are certifying."
+            exit 1
+          fi
+          echo "every commit is signed off"
+
+  branch-coverage:
+    name: Branch coverage
+    runs-on: ubuntu-latest
+    # Branch coverage needs nightly; `rust-toolchain.toml` would
+    # otherwise pin this job to the release toolchain, where
+    # `cargo llvm-cov --branch` does not build.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # main
+        with:
+          tool: cargo-llvm-cov
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # cargo-llvm-cov has --fail-under-lines but no branch equivalent,
+      # so the floor is enforced by reading the summary. Branch
+      # coverage is the weaker of the two measures precisely because it
+      # is the harder one to reach, so the bar is 80 rather than 95.
+      - name: Branch coverage must stay above 80%
+        run: |
+          cargo llvm-cov --branch --all-features --summary-only \
+            --ignore-filename-regex 'builds/cargo/package' | tee /tmp/branch.txt
+          awk '/^TOTAL/{
+            gsub(/%/,"",$NF)
+            if ($NF+0 < 80) {
+              print "::error::branch coverage " $NF "% is below the 80% floor"
+              exit 1
+            }
+            print "branch coverage " $NF "%"
+          }' /tmp/branch.txt
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  unsafe:
+    name: Forbid unsafe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The crate must forbid unsafe code
+        run: |
+          if ! grep -rq '#!\[forbid(unsafe_code)\]' src/; then
+            echo "::error::#![forbid(unsafe_code)] is missing"
+            exit 1
+          fi
+          echo "unsafe_code is forbidden"
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@742a3317eac7bd62f91cd888b4eead5e784ba833 # main
+        with:
+          tool: cargo-llvm-cov
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # Every defect fixed in 0.0.3 was found by raising coverage, not
+      # by reading the code. The floor keeps that from eroding: a new
+      # branch nothing exercises fails here rather than shipping.
+      - run: >
+          cargo llvm-cov --all-features --fail-under-lines 95
+          --ignore-filename-regex 'builds/cargo/package'

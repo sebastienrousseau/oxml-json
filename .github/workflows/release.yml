@@ -1,0 +1,134 @@
+name: Release
+
+# Publishing is done by CI, not from a laptop. A local `cargo publish`
+# depends on whatever that machine happened to have checked out, and
+# crates.io cannot be un-published -- only yanked.
+#
+# The trigger is a tag. Pushing `v0.0.7` publishes 0.0.7 and nothing
+# else: the first job refuses to run if the tag disagrees with
+# Cargo.toml.
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      # A tag that disagrees with Cargo.toml publishes the wrong
+      # version under the right name, and that cannot be taken back.
+      - name: The tag must match the version in Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          have="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name=="oxml-json") | .version')"
+          if [ "$tag" != "$have" ]; then
+            echo "::error::tag $tag does not match Cargo.toml $have"
+            exit 1
+          fi
+          echo "publishing oxml-json $tag"
+
+      # crates.io versions are immutable: publishing one that already
+      # exists fails. A tag can be pushed after the fact -- 0.0.7 was
+      # published from a laptop before this workflow existed, and
+      # tagging it afterwards should record the release, not attempt
+      # it again.
+      # crates.io rejects requests without a User-Agent identifying the
+      # client. curl sends none, so from a runner every one of these
+      # calls failed -- and a failed lookup reads as "not published",
+      # which is the answer that makes the workflow do the wrong thing.
+      - name: Skip if this version is already published
+        id: published
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          if curl -sf -H "User-Agent: oxml-json release workflow (https://github.com/sebastienrousseau/oxml-json)" "https://crates.io/api/v1/crates/oxml-json/$tag" >/dev/null; then
+            echo "oxml-json $tag is already on crates.io; nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.published.outputs.skip == 'false'
+        run: cargo test --all-features
+
+      # The suite ships one version across six crates, and the order is
+      # load-bearing: `oxml-cli` and `oxml-mcp` depend on `xmlschema`,
+      # which depends on `oxml`. Publishing out of order leaves a tree
+      # resolving two incompatible `oxml` versions, which fails with
+      # `expected oxml::tree::Document, found Document`.
+      #
+      # doc/RELEASING.md got this order wrong once. Waiting here makes
+      # the order a property of the pipeline rather than of whoever
+      # pushes the tags: publish the tags in any order and each crate
+      # holds until what it needs is live.
+      - name: Wait for the crates this one depends on
+        if: steps.published.outputs.skip == 'false'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for dep in oxml; do
+            echo "waiting for $dep $tag"
+            ok=
+            for i in $(seq 1 90); do
+              if curl -sf -H "User-Agent: oxml-json release workflow (https://github.com/sebastienrousseau/oxml-json)" "https://crates.io/api/v1/crates/$dep/$tag" >/dev/null; then
+                ok=1; echo "  $dep $tag is live"; break
+              fi
+              sleep 20
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::$dep $tag did not appear within 30 minutes"
+              exit 1
+            fi
+          done
+
+      # Until CARGO_REGISTRY_TOKEN exists, this crate is published
+      # from a laptop with `scripts/publish.sh`. Say so plainly rather
+      # than letting `cargo publish` fail on an empty token, which
+      # reports as an authentication error and reads like a revoked
+      # credential.
+      - name: The publish token must be set
+        if: steps.published.outputs.skip == 'false'
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not set on this repository."
+            echo "Either add it, or publish with scripts/publish.sh and do"
+            echo "not push release tags."
+            exit 1
+          fi
+
+      - name: Publish
+        if: steps.published.outputs.skip == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish 
+
+      # crates.io indexes asynchronously, so a publish that returned
+      # success is not yet a publish anyone can depend on. The next
+      # crate in the suite waits on exactly this.
+      - name: Confirm it is on crates.io
+        if: steps.published.outputs.skip == 'false'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 30); do
+            if curl -sf -H "User-Agent: oxml-json release workflow (https://github.com/sebastienrousseau/oxml-json)" "https://crates.io/api/v1/crates/oxml-json/$tag" >/dev/null; then
+              echo "oxml-json $tag is live"; exit 0
+            fi
+            echo "not indexed yet ($i/30)"; sleep 10
+          done
+          echo "::error::oxml-json $tag did not appear within five minutes"
+          exit 1

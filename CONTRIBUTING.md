@@ -1,0 +1,80 @@
+# Contributing to oxml-json
+
+Thank you for considering a contribution.
+
+## Where to start
+
+Tasks suitable for a first contribution are labelled
+[**good first issue**](https://github.com/sebastienrousseau/oxml-json/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22),
+and anything the maintainer would welcome help with is labelled
+[**help wanted**](https://github.com/sebastienrousseau/oxml-json/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
+
+Each one states what "done" looks like, so you can tell whether you
+have finished without asking. Several also say why the obvious
+approach does not work — that is the part usually learned by trying it.
+
+If none of them appeal, opening an issue to ask is fine.
+
+## Ground rules
+
+- **No `unsafe`.** The crate is `#![forbid(unsafe_code)]` and that is
+  not negotiable — it is a large part of what the library is for.
+- **Every change is tested.** A bug fix comes with a test that fails
+  before it and passes after. "It compiles" is necessary, not
+  sufficient.
+- **Benchmarks back performance claims.** If a change is described as
+  faster, the pull request should say by how much, measured.
+
+## Getting set up
+
+```bash
+git clone https://github.com/sebastienrousseau/oxml-json
+cd oxml
+cargo test
+```
+
+## Before opening a pull request
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+cargo doc --no-deps
+```
+
+All four must pass. CI runs the same commands, so a green local run
+means a green pipeline.
+
+## Signing off your work
+
+Every commit must carry a `Signed-off-by` line. Add one automatically:
+
+```bash
+git commit -s
+```
+
+To sign off work you have already committed:
+
+```bash
+git rebase --signoff main
+```
+
+The line certifies the [Developer Certificate of
+Origin](DCO) — in short, that you wrote the change or have the right
+to submit it under this project's licence, and that your sign-off is
+part of a public record.
+
+This is checked in CI on every commit a pull request adds, because a
+requirement nothing verifies is a request. Bot commits are exempt:
+they cannot sign off, and demanding it of them would block every
+dependency update on a technicality.
+
+## Commit messages
+
+[Conventional Commits](https://www.conventionalcommits.org/). The body
+matters more than the subject: explain what was wrong and why the fix
+is right, not just what changed.
+
+## Reporting a security issue
+
+Please do not open a public issue. See [SECURITY.md](SECURITY.md).
