@@ -9,11 +9,12 @@ about what it *cannot* do.
 
 ## What this software is
 
-`oxml-json` is a small JSON value, parser and serialiser.
+`oxml-json` is a JSON value, parser and serialiser.
 
 ## What it consumes
 
-Its inputs are XML documents supplied by an editor or on standard input. The threat model assumes every one of them is
+Its inputs are JSON-RPC messages arriving over a pipe from an editor
+or a language model. The threat model assumes every one of them is
 hostile: a document written specifically to crash the parser, exhaust
 memory, or reach something it should not.
 
@@ -27,7 +28,7 @@ or reach the network or the filesystem.**
 
 ### Memory safety is structural, not tested for
 
-Parsing is delegated to `oxml`, which never fetches external entities.
+This crate opens no file and no socket. It turns bytes into a value and back; there is nothing else for it to reach.
 
 ### Resource exhaustion is bounded, not merely unlikely
 
@@ -45,10 +46,19 @@ in either direction fails the build.
 
 ## The evidence
 
-- `#![forbid(unsafe_code)]`, checked by a CI job.
-- 21 tests over `analyse()`, every `Diagnostic` field, positions and exit codes.
-- Line coverage gated at a 95% floor.
-- `analyse()` is linear in document size; a quadratic pass over attributes was found by benchmark and fixed, taking 1,088 ms to 9.5 ms.
+- `#![forbid(unsafe_code)]`, checked by a CI job that greps for the
+  attribute rather than trusting it is still there.
+- 19 tests and a doctest; **100% line and function coverage**, with a
+  95% floor gated in CI and branch coverage gated at 80.
+- A `cargo-fuzz` target on every pull request. It asserts more than the
+  absence of a panic: anything that parses must survive a round trip
+  through `to_json` and back to the same value.
+- That assertion is why this crate exists in the form it does. It
+  found, within ninety seconds of the extraction, a defect that both
+  copies of this parser had carried for months: `1e999` parsed to
+  infinity and serialised to the bare token `inf`, which is not JSON.
+- Numbers outside `f64`'s range are refused rather than rounded, so a
+  value this crate accepts is a value it can write back.
 
 ## What this case does *not* claim
 
