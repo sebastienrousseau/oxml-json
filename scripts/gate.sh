@@ -73,6 +73,10 @@ step "coverage 95%" cargo "+$TOOLCHAIN" llvm-cov --all-features --fail-under-lin
 # claim of coverage that does not exist.
 step "published figures" python3 scripts/check-figures.py
 
+# Every `pub fn` must be *executed* by an example, not merely
+# mentioned. The README says the examples cover the public API.
+step "examples cover the API" python3 scripts/check-example-coverage.py
+
 step "package claims" python3 scripts/check-package.py
 
 step "MSRV $MSRV" cargo "+$MSRV" check --all-features
