@@ -63,6 +63,11 @@ step "forbid unsafe" bash -c '
 step "examples"      cargo "+$TOOLCHAIN" run --quiet --example parse_and_build
 step "coverage 95%" cargo "+$TOOLCHAIN" llvm-cov --all-features --fail-under-lines 95 \
   --ignore-filename-regex 'builds/cargo/package'
+# What `cargo publish` would upload -- and whether the documents in it
+# describe this crate. 0.0.8 shipped an assurance case inherited from
+# oxml-lsp, and crates.io versions cannot be edited afterwards.
+step "package claims" python3 scripts/check-package.py
+
 step "MSRV $MSRV" cargo "+$MSRV" check --all-features
 
 echo
