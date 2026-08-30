@@ -16,12 +16,24 @@ back in having nothing to audit.
 
 ## The order
 
-**1. Borrowed parsing.** Every string in a parsed document is owned
-today, which means a copy per string. Ranges into the input would
-remove that, at the cost of a lifetime on `Json`. Worth measuring
-before committing to the API change: the documents this handles are
-MCP request bodies, and for those the copy may not be the cost that
-matters.
+**1. Borrowed parsing — measured, and it is not the win it looked
+like.** Every string in a parsed document is owned, which means a copy
+per string. Ranges into the input would remove that, at the cost of a
+lifetime on `Json`.
+
+`benches/parse.rs` compares two documents of the same entry count that
+differ in how much of each entry is string content, normalised per
+byte. Owning the strings does not dominate: the string-heavy shape
+parses at **0.75-0.89x the per-byte cost** of the numeric one across
+three runs — that is, *faster* per byte, because parsing a number
+costs more than copying a short string. The spread is machine noise;
+the direction was the same every time.
+
+So the lifetime is not worth adding for the bodies this crate sees.
+An MCP request parses in about 1.5 us and a `tools/list` reply in
+about 9 us; the copy is not where that time goes. Revisit only if a
+caller appears whose documents are both large and overwhelmingly
+textual.
 
 **2. A streaming reader.** `parse` builds the whole value. A
 response large enough to matter is one that should not be held whole,
