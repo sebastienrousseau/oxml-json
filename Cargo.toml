@@ -36,6 +36,11 @@ include = [
 
 [dependencies]
 
+[[bench]]
+name = "parse"
+path = "benches/parse.rs"
+harness = false
+
 [[example]]
 name = "parse_and_build"
 path = "examples/parse_and_build.rs"
