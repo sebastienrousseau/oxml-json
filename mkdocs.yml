@@ -2,7 +2,7 @@
 site_name: oxml-json
 site_description: >-
   A small JSON value, parser, and serializer for the oxml suite's JSON-RPC crates.
-site_url: https://sebastienrousseau.github.io/oxml-json/
+site_url: https://json.oxmllib.com/
 site_author: Sebastien Rousseau
 copyright: Copyright &copy; 2026 <a href="https://sebastienrousseau.com/" rel="author">Sebastien Rousseau</a>
 
