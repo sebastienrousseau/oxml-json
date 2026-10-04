@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Every member of the [oxml](https://github.com/sebastienrousseau/oxml)
 suite ships the same version number.
 
+## [0.0.9] - 2026-10-04
+
+### Changed
+
+- **Version synchronization.** Synchronize suite release to 0.0.9 across
+  all repositories.
+
 ## [0.0.8] - 2026-08-29
 
 ### Added
