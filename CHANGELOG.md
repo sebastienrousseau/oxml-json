@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Every member of the [oxml](https://github.com/sebastienrousseau/oxml)
 suite ships the same version number.
 
+## [0.0.11] - Unreleased
+
+### Changed
+
+- **Breaking: the MSRV is now Rust 1.89.0** (was 1.86.0), one floor
+  shared with the maintainer's other Rust crates.
+- **The MSRV job checks its toolchain first.** It already set
+  `RUSTUP_TOOLCHAIN`; it now also asserts `rustc --version` before
+  building.
+
 ## [0.0.10] - 2026-10-05
 
 ### Changed
