@@ -210,7 +210,13 @@ impl Parser<'_> {
             return Err("JSON nesting limit exceeded (256)".to_owned());
         }
         self.depth += usize::from(container);
-        let result = match self.chars.get(self.pos) {
+        let result = self.value_inner();
+        self.depth -= usize::from(container);
+        result
+    }
+
+    fn value_inner(&mut self) -> Result<Json, String> {
+        match self.chars.get(self.pos) {
             Some('{') => self.object(),
             Some('[') => self.array(),
             Some('"') => Ok(Json::String(self.string()?)),
@@ -219,9 +225,7 @@ impl Parser<'_> {
             Some('n') => self.literal("null", Json::Null),
             Some(_) => self.number(),
             None => Err("unexpected end of JSON".to_owned()),
-        };
-        self.depth -= usize::from(container);
-        result
+        }
     }
 
     fn literal(&mut self, word: &str, v: Json) -> Result<Json, String> {
@@ -302,53 +306,7 @@ impl Parser<'_> {
                 }
                 Some('\\') => {
                     self.pos += 1;
-                    let esc =
-                        self.chars.get(self.pos).ok_or("trailing backslash")?;
-                    self.pos += 1;
-                    match esc {
-                        'n' => out.push('\n'),
-                        't' => out.push('\t'),
-                        'r' => out.push('\r'),
-                        'b' => out.push('\u{8}'),
-                        'f' => out.push('\u{c}'),
-                        'u' => {
-                            let cp = self.hex4()?;
-                            // A non-BMP character is escaped as a
-                            // surrogate *pair*; neither half is a
-                            // `char` on its own. Python's `json.dumps`
-                            // escapes non-ASCII by default, so a client
-                            // sending an emoji arrives this way.
-                            let cp = if (0xD800..0xDC00).contains(&cp) {
-                                if !matches!(
-                                    self.chars.get(self.pos..self.pos + 2),
-                                    Some(['\\', 'u'])
-                                ) {
-                                    return Err(
-                                        "lone high surrogate".to_owned()
-                                    );
-                                }
-                                self.pos += 2;
-                                let lo = self.hex4()?;
-                                if !(0xDC00..0xE000).contains(&lo) {
-                                    return Err(
-                                        "high surrogate not followed by a \
-                                         low surrogate"
-                                            .to_owned(),
-                                    );
-                                }
-                                0x1_0000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
-                            } else if (0xDC00..0xE000).contains(&cp) {
-                                return Err("lone low surrogate".to_owned());
-                            } else {
-                                cp
-                            };
-                            out.push(
-                                char::from_u32(cp).ok_or("bad code point")?,
-                            );
-                        }
-                        '"' | '\\' | '/' => out.push(*esc),
-                        _ => return Err("invalid string escape".to_owned()),
-                    }
+                    out.push(self.escape()?);
                 }
                 Some(c) if *c < '\u{20}' => {
                     return Err("unescaped control in string".to_owned());
@@ -359,6 +317,45 @@ impl Parser<'_> {
                 }
             }
         }
+    }
+
+    fn escape(&mut self) -> Result<char, String> {
+        let esc = *self.chars.get(self.pos).ok_or("trailing backslash")?;
+        self.pos += 1;
+        match esc {
+            'u' => self.unicode_escape(),
+            _ => simple_escape(esc)
+                .ok_or_else(|| "invalid string escape".to_owned()),
+        }
+    }
+
+    fn unicode_escape(&mut self) -> Result<char, String> {
+        let cp = self.hex4()?;
+        // A non-BMP character is escaped as a surrogate *pair*; neither
+        // half is a `char` on its own. Python's `json.dumps` escapes
+        // non-ASCII by default, so a client sending an emoji arrives
+        // this way.
+        let cp = if (0xD800..0xDC00).contains(&cp) {
+            if !matches!(
+                self.chars.get(self.pos..self.pos + 2),
+                Some(['\\', 'u'])
+            ) {
+                return Err("lone high surrogate".to_owned());
+            }
+            self.pos += 2;
+            let lo = self.hex4()?;
+            if !(0xDC00..0xE000).contains(&lo) {
+                return Err(
+                    "high surrogate not followed by a low surrogate".to_owned()
+                );
+            }
+            0x1_0000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
+        } else if (0xDC00..0xE000).contains(&cp) {
+            return Err("lone low surrogate".to_owned());
+        } else {
+            cp
+        };
+        char::from_u32(cp).ok_or_else(|| "bad code point".to_owned())
     }
 
     /// Read exactly four hex digits of a `\\u` escape.
@@ -402,6 +399,18 @@ impl Parser<'_> {
             return Err(format!("number `{text}` is out of range for f64"));
         }
         Ok(Json::Number(value))
+    }
+}
+
+fn simple_escape(escaped: char) -> Option<char> {
+    match escaped {
+        'n' => Some('\n'),
+        't' => Some('\t'),
+        'r' => Some('\r'),
+        'b' => Some('\u{8}'),
+        'f' => Some('\u{c}'),
+        c if ['"', '\\', '/'].contains(&c) => Some(c),
+        _ => None,
     }
 }
 
