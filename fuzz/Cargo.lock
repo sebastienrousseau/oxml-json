@@ -75,7 +75,7 @@ version = "0.0.11"
 
 [[package]]
 name = "oxml-json-fuzz"
-version = "0.0.0"
+version = "0.0.11"
 dependencies = [
  "libfuzzer-sys",
  "oxml-json",

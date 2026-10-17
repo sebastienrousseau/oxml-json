@@ -12,6 +12,11 @@ suite ships the same version number.
 
 ### Changed
 
+- Align unpublished harnesses at 0.0.11 and match example coverage to
+  exact source paths, with negative regression contracts in local/CI gates.
+- Wait for all actual release prerequisites before compiling, propagate
+  publication failures and keep the laptop helper dry-run-only.
+
 - Bound JSON sources at 16 MiB and arrays/objects at 256 nested levels.
 - Reject malformed numeric spellings, unknown string escapes and raw
   control characters. Retain valid JSON and finite-number round trips.
