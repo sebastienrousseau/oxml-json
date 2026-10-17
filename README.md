@@ -12,7 +12,7 @@
   <a href="https://crates.io/crates/oxml-json"><img src="https://img.shields.io/crates/v/oxml-json.svg?style=for-the-badge&color=fc8d62&logo=rust" alt="Crates.io" /></a>
   <a href="https://docs.rs/oxml-json"><img src="https://img.shields.io/badge/docs.rs-oxml--json-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" alt="Docs.rs" /></a>
   <a href="https://lib.rs/crates/oxml-json"><img src="https://img.shields.io/badge/lib.rs-oxml--json-orange.svg?style=for-the-badge" alt="lib.rs" /></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/sebastienrousseau/oxml-json"><img src="https://img.shields.io/ossf-scorecard/github.com/sebastienrousseau/oxml-json?style=for-the-badge&label=OpenSSF%20Scorecard&logo=openssf" alt="OpenSSF Scorecard" /></a>
+  <a href="https://github.com/sebastienrousseau/oxml-json/actions/workflows/scorecard.yml"><img src="https://img.shields.io/github/actions/workflow/status/sebastienrousseau/oxml-json/scorecard.yml?style=for-the-badge&label=Scorecard%20scan&logo=openssf" alt="Scorecard scan workflow status" /></a>
   <a href="https://www.bestpractices.dev/projects/14359"><img src="https://img.shields.io/cii/level/14359?style=for-the-badge&label=OpenSSF%20Best%20Practices&logo=openssf" alt="OpenSSF Best Practices" /></a>
 </p>
 
@@ -97,6 +97,11 @@ Everything CI runs: format, clippy, tests, rustdoc, the
 an MSRV build. Fuzzing runs in CI on every pull request.
 
 ## Security
+
+Scorecard scans use a digest-pinned upstream image. Results are retained
+as CI artifacts and repository posture findings in GitHub code scanning,
+not published to Scorecard's public service. The badge shows workflow
+status, not a security score; a successful scan can still report findings.
 
 See [SECURITY.md](SECURITY.md). This crate parses untrusted input by
 design — both protocols carry it — so it is fuzzed continuously and
