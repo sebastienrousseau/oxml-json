@@ -5,8 +5,8 @@
 ## Where this is
 
 A JSON parser and serialiser with no dependencies, extracted from
-`oxml-mcp` at 0.0.8 so that the MCP server and the command-line tool
-share one implementation rather than two that could disagree.
+`oxml-mcp` at 0.0.8 to share the original JSON-RPC implementation. LSP still uses it;
+MCP now uses the protocol SDK's JSON stack.
 
 The surface is deliberately small: `parse` a string into a `Json`, and
 `to_json` a `Json` back into a string. It is not a general-purpose
@@ -16,24 +16,14 @@ back in having nothing to audit.
 
 ## The order
 
-**1. Borrowed parsing — measured, and it is not the win it looked
-like.** Every string in a parsed document is owned, which means a copy
-per string. Ranges into the input would remove that, at the cost of a
-lifetime on `Json`.
+**1. Borrowed parsing: measurement remains open.** Parsed strings are
+owned. `benches/parse.rs` measures requests, tool replies, string-heavy,
+number-heavy and nested inputs, and also measures serialization.
 
-`benches/parse.rs` compares two documents of the same entry count that
-differ in how much of each entry is string content, normalised per
-byte. Owning the strings does not dominate: the string-heavy shape
-parses at **0.75-0.89x the per-byte cost** of the numeric one across
-three runs — that is, *faster* per byte, because parsing a number
-costs more than copying a short string. The spread is machine noise;
-the direction was the same every time.
-
-So the lifetime is not worth adding for the bodies this crate sees.
-An MCP request parses in about 1.5 us and a `tools/list` reply in
-about 9 us; the copy is not where that time goes. Revisit only if a
-caller appears whose documents are both large and overwhelmingly
-textual.
+The string-heavy/number-heavy ratio compares different workloads; it
+does not isolate ownership or copying cost. A decision to add lifetimes
+requires a paired owned/borrowed implementation on identical inputs,
+with allocation measurements and repeated runs. No speedup is claimed.
 
 **2. A streaming reader.** `parse` builds the whole value. A
 response large enough to matter is one that should not be held whole,

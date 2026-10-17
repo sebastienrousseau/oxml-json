@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-oxml is pre-1.0. Only the most recent `0.0.x` release receives security
+oxml-json is pre-1.0. Only the most recent `0.0.x` release receives security
 fixes.
 
 ## Reporting a vulnerability
@@ -16,27 +16,24 @@ You should get an acknowledgement within 72 hours.
 
 ## Threat model
 
-XML parsers have a well-known attack surface, and oxml's design
-forecloses most of it rather than mitigating it:
+This crate parses JSON, not XML. `parse` rejects sources larger than
+16 MiB and more than 256 nested arrays/objects. It owns its parsed strings
+and builds the complete value, so it is not a constant-memory streaming
+parser. Applications must also bound transport buffering and concurrency.
 
-**Entity expansion (XXE, billion laughs).** oxml resolves only the five
-predefined entities and numeric character references. External and
-custom entities are *not* resolved — a document declaring
-`<!ENTITY xxe SYSTEM "file:///etc/passwd">` is rejected rather than
-expanded. There is no option to enable it, so there is no way to
-configure the vulnerability back in.
+Numbers use finite `f64`; integers beyond 2^53 can lose precision. Do not
+use this representation for identifiers requiring larger exact integers.
+Duplicate object keys retain the last value. Callers must not combine this
+with a verifier that interprets duplicate keys differently. `Json` values
+constructed directly by a caller are trusted data: the infallible writer
+does not validate arbitrary nesting or non-finite manually built numbers.
 
-**Unbounded recursion.** Deeply nested documents are parsed with
-recursion. Extremely deep input can exhaust the stack; if you parse
-untrusted documents of unbounded depth, run the parse on a thread with
-a known stack size.
-
-**Memory safety.** `#![forbid(unsafe_code)]` is enforced at compile
-time, so the class of memory-corruption bugs that has historically
-affected C XML parsers cannot occur here.
+**Memory safety.** This crate forbids unsafe Rust in its own source.
+Dependencies and runtimes have separate safety obligations. This
+does not rule out resource exhaustion, logic defects or protocol errors.
 
 ## What is not a vulnerability
 
-- Rejecting a document other parsers accept, when the document is not
-  well-formed. Please still report it — it is a bug, just not a
+- Rejecting JSON another parser accepts, when that input violates
+  the JSON grammar. Please still report it — it is a bug, just not a
   security one.

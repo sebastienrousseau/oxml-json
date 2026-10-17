@@ -48,6 +48,7 @@ step() {
 # a `git add -A` will commit it. `.gitignore` does not help once a path
 # is tracked, and CI then cannot create its build directory on top of
 # it -- every build job fails until it is removed.
+step "publish helper contract" python3 scripts/test-publish-dry-run.py
 step "no tracked build dir" bash -c '! git ls-files | grep -qx target'
 step "fmt"            cargo "+$TOOLCHAIN" fmt --all --check
 step "clippy"         cargo "+$TOOLCHAIN" clippy --all-targets --all-features -- -D warnings
@@ -61,7 +62,7 @@ step "forbid unsafe" bash -c '
 # `lint.sh` asserts its output and says so in its own header; nothing
 # ran it until 0.0.7.
 step "examples"      cargo "+$TOOLCHAIN" run --quiet --example parse_and_build
-step "coverage 95%" cargo "+$TOOLCHAIN" llvm-cov --all-features --fail-under-lines 95 \
+step "coverage 95%" cargo "+$TOOLCHAIN" llvm-cov --remap-path-prefix --all-features --fail-under-lines 95 \
   --ignore-filename-regex 'builds/cargo/package'
 # What `cargo publish` would upload -- and whether the documents in it
 # describe this crate. 0.0.8 shipped an assurance case inherited from

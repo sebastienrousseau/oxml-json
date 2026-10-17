@@ -4,15 +4,13 @@
 
 ## What is checked
 
-19 tests and a doctest over `parse` and `to_json`: every value type,
+23 tests and a doctest over `parse` and `to_json`: every value type,
 nesting, escapes, surrogate pairs, the numeric edge cases, and round
 trips.
 
-Line and function coverage are both **100%**; region coverage is
-99.36%. Line coverage is gated in CI at a 95% floor and branch
-coverage at 80%, so the figures above are a result rather than a
-target -- the gates are where they are to catch erosion, not to
-describe the crate.
+Line coverage is gated in CI at a 95% floor and branch coverage at
+80%. The test suite also rejects oversized/deep inputs, invalid number
+spellings, unknown escapes and unescaped control characters.
 
 ## The cases worth naming
 
@@ -47,7 +45,7 @@ the failure a panic-only target misses.
 ## Running everything
 
 ```bash
-cargo test --all-features        # 19 tests and a doctest
+cargo test --all-features        # 23 tests and a doctest
 ./scripts/gate.sh                # everything CI runs, in the same order
 ```
 

@@ -23,9 +23,11 @@
 //!
 //! # Numbers
 //!
-//! Numbers are `f64`, which is what JSON's grammar describes and what
-//! both protocols use for ids and codes. An integer beyond 2^53 does
-//! not survive, which no request id in either protocol reaches.
+//! This implementation stores numbers as `f64`; JSON itself does not
+//! require that representation. An integer beyond 2^53 does
+//! may lose precision. Callers requiring larger exact integers must use a
+//! different representation. The LSP transport uses this crate; MCP uses
+//! its SDK's JSON implementation.
 //!
 //! ```
 //! use oxml_json::{parse, Json};
@@ -166,12 +168,17 @@ fn write_string(s: &str, out: &mut String) {
 ///
 /// # Errors
 ///
-/// Returns a description if the input is not valid JSON.
+/// Returns a description if the input is not valid JSON, exceeds 16 MiB,
+/// or contains more than 256 nested arrays and objects.
 pub fn parse(input: &str) -> Result<Json, String> {
+    if input.len() > 16 * 1024 * 1024 {
+        return Err("JSON source limit exceeded (16 MiB)".to_owned());
+    }
     let chars: Vec<char> = input.chars().collect();
     let mut p = Parser {
         chars: &chars,
         pos: 0,
+        depth: 0,
     };
     p.ws();
     let v = p.value()?;
@@ -185,6 +192,7 @@ pub fn parse(input: &str) -> Result<Json, String> {
 struct Parser<'a> {
     chars: &'a [char],
     pos: usize,
+    depth: usize,
 }
 
 impl Parser<'_> {
@@ -197,7 +205,12 @@ impl Parser<'_> {
 
     fn value(&mut self) -> Result<Json, String> {
         self.ws();
-        match self.chars.get(self.pos) {
+        let container = matches!(self.chars.get(self.pos), Some('{' | '['));
+        if container && self.depth >= 256 {
+            return Err("JSON nesting limit exceeded (256)".to_owned());
+        }
+        self.depth += usize::from(container);
+        let result = match self.chars.get(self.pos) {
             Some('{') => self.object(),
             Some('[') => self.array(),
             Some('"') => Ok(Json::String(self.string()?)),
@@ -206,7 +219,9 @@ impl Parser<'_> {
             Some('n') => self.literal("null", Json::Null),
             Some(_) => self.number(),
             None => Err("unexpected end of JSON".to_owned()),
-        }
+        };
+        self.depth -= usize::from(container);
+        result
     }
 
     fn literal(&mut self, word: &str, v: Json) -> Result<Json, String> {
@@ -331,8 +346,12 @@ impl Parser<'_> {
                                 char::from_u32(cp).ok_or("bad code point")?,
                             );
                         }
-                        c => out.push(*c),
+                        '"' | '\\' | '/' => out.push(*esc),
+                        _ => return Err("invalid string escape".to_owned()),
                     }
+                }
+                Some(c) if *c < '\u{20}' => {
+                    return Err("unescaped control in string".to_owned());
                 }
                 Some(c) => {
                     out.push(*c);
@@ -364,6 +383,9 @@ impl Parser<'_> {
             self.pos += 1;
         }
         let text: String = self.chars[start..self.pos].iter().collect();
+        if !valid_number(&text) {
+            return Err(format!("invalid number `{text}`"));
+        }
         let value: f64 = text
             .parse()
             .map_err(|_| format!("invalid number `{text}`"))?;
@@ -381,6 +403,37 @@ impl Parser<'_> {
         }
         Ok(Json::Number(value))
     }
+}
+
+fn digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn valid_mantissa(text: &str) -> bool {
+    let (integer, fraction) = text
+        .split_once('.')
+        .map_or((text, None), |(integer, fraction)| {
+            (integer, Some(fraction))
+        });
+    digits(integer)
+        && !(integer.len() > 1 && integer.starts_with('0'))
+        && fraction.is_none_or(digits)
+}
+
+fn valid_number(text: &str) -> bool {
+    let unsigned = text.strip_prefix('-').unwrap_or(text);
+    let mut parts = unsigned.split(['e', 'E']);
+    let mantissa = parts.next().unwrap_or_default();
+    let exponent = parts.next();
+    parts.next().is_none()
+        && valid_mantissa(mantissa)
+        && exponent.is_none_or(|value| {
+            let unsigned = value
+                .strip_prefix('+')
+                .or_else(|| value.strip_prefix('-'))
+                .unwrap_or(value);
+            digits(unsigned)
+        })
 }
 
 #[cfg(test)]

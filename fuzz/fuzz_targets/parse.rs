@@ -25,7 +25,6 @@ fuzz_target!(|data: &[u8]| {
     // value it just accepted is worse than one that refuses it: the
     // loss is silent.
     let text = value.to_json();
-    let again = oxml_json::parse(&text)
-        .expect("output of to_json must parse");
+    let again = oxml_json::parse(&text).expect("output of to_json must parse");
     assert_eq!(value, again, "round trip changed the value: {text}");
 });

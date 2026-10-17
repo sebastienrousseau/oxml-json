@@ -32,7 +32,8 @@ private module.
 
 A copy is fine until it is not. A defect fixed in one would not have
 reached the other, and nothing would have noticed — the failure mode
-this suite keeps finding elsewhere. So it lives here instead.
+this suite keeps finding elsewhere. It lives here instead. The LSP transport uses this crate; the MCP
+server now uses its SDK's JSON stack.
 
 **The extraction was worth it immediately.** Moving the fuzz target
 here came with a stronger assertion — that anything which parses must
@@ -55,7 +56,7 @@ compete.
 
 ```toml
 [dependencies]
-oxml-json = "0.0.8"
+oxml-json = "0.0.11"
 ```
 
 ## Quick Start
@@ -78,9 +79,10 @@ output comparable in a test without parsing it again.
 
 ## Numbers
 
-Numbers are `f64`, which is what JSON's grammar describes and what both
-protocols use for ids and codes. An integer beyond 2<sup>53</sup> does
-not survive that, which no request id in either protocol reaches. A
+This implementation stores numbers as `f64`. JSON itself does not
+require that representation. An integer beyond 2<sup>53</sup> may
+lose precision. Do not use this representation for identifiers that
+require exact integers beyond that range. A
 literal outside `f64`'s range is **refused** rather than rounded to
 infinity.
 
