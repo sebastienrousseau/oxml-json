@@ -6,7 +6,6 @@ rust-version = "1.89.0"
 license = "MIT OR Apache-2.0"
 description = "A small JSON value, parser and serialiser for the oxml suite's JSON-RPC crates"
 repository = "https://github.com/sebastienrousseau/oxml-json"
-homepage = "https://github.com/sebastienrousseau/oxml-json"
 documentation = "https://docs.rs/oxml-json"
 readme = "README.md"
 keywords = ["json", "json-rpc", "parser", "lsp", "mcp"]
