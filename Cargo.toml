@@ -1,12 +1,11 @@
 [package]
 name = "oxml-json"
-version = "0.0.10"
+version = "0.0.11"
 edition = "2024"
-rust-version = "1.86.0"
+rust-version = "1.89.0"
 license = "MIT OR Apache-2.0"
 description = "A small JSON value, parser and serialiser for the oxml suite's JSON-RPC crates"
 repository = "https://github.com/sebastienrousseau/oxml-json"
-homepage = "https://github.com/sebastienrousseau/oxml-json"
 documentation = "https://docs.rs/oxml-json"
 readme = "README.md"
 keywords = ["json", "json-rpc", "parser", "lsp", "mcp"]
@@ -30,8 +29,10 @@ include = [
     "/LICENSE-APACHE",
     "/LICENSE-MIT",
     "/README.md",
+    "/benches/**",
     "/examples/**",
     "/src/**",
+    "/tests/**",
 ]
 
 [dependencies]

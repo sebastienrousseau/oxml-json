@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Every member of the [oxml](https://github.com/sebastienrousseau/oxml)
 suite ships the same version number.
 
+## [0.0.11] - 2026-10-17
+
+### Changed
+
+- Pin Scorecard execution by verified container digest and disable public
+  results publication. Retain SARIF artifacts, categorize posture findings
+  in GitHub code scanning, and display workflow status instead of a score.
+
+- Permit NCSA only for libfuzzer-sys 0.4.13 in the fuzz workspace;
+  retain the root license policy and check both graphs in CI.
+- Require an annotated tag signed by the approved public key, with the
+  exact project/version subject, and use crates.io Trusted Publishing
+  instead of a stored publishing token. Registry configuration still
+  requires independent confirmation before tagging.
+
+- Align unpublished harnesses at 0.0.11 and match example coverage to
+  exact source paths, with negative regression contracts in local/CI gates.
+- Wait for all actual release prerequisites before compiling, propagate
+  publication failures and keep the laptop helper dry-run-only.
+
+- Bound JSON sources at 16 MiB and arrays/objects at 256 nested levels.
+- Reject malformed numeric spellings, unknown string escapes and raw
+  control characters. Retain valid JSON and finite-number round trips.
+- Make the laptop release helper dry-run-only and test that contract in CI.
+- Align the publishable package and family dependencies at 0.0.11,
+  refresh root/fuzz lockfiles, and retain Rust 1.89.0 as the minimum.
+- Validate closed issue/dependency changes against current sources and
+  use pinned compiler, coverage, fuzz and audit tools in CI.
+
+- **Breaking: the MSRV is now Rust 1.89.0** (was 1.86.0), one floor
+  shared with the maintainer's other Rust crates.
+- **The MSRV job checks its toolchain first.** It already set
+  `RUSTUP_TOOLCHAIN`; it now also asserts `rustc --version` before
+  building.
+
 ## [0.0.10] - 2026-10-05
 
 ### Changed

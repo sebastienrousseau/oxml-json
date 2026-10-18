@@ -23,9 +23,11 @@
 //!
 //! # Numbers
 //!
-//! Numbers are `f64`, which is what JSON's grammar describes and what
-//! both protocols use for ids and codes. An integer beyond 2^53 does
-//! not survive, which no request id in either protocol reaches.
+//! This implementation stores numbers as `f64`; JSON itself does not
+//! require that representation. An integer beyond 2^53 does
+//! may lose precision. Callers requiring larger exact integers must use a
+//! different representation. The LSP transport uses this crate; MCP uses
+//! its SDK's JSON implementation.
 //!
 //! ```
 //! use oxml_json::{parse, Json};
@@ -166,12 +168,17 @@ fn write_string(s: &str, out: &mut String) {
 ///
 /// # Errors
 ///
-/// Returns a description if the input is not valid JSON.
+/// Returns a description if the input is not valid JSON, exceeds 16 MiB,
+/// or contains more than 256 nested arrays and objects.
 pub fn parse(input: &str) -> Result<Json, String> {
+    if input.len() > 16 * 1024 * 1024 {
+        return Err("JSON source limit exceeded (16 MiB)".to_owned());
+    }
     let chars: Vec<char> = input.chars().collect();
     let mut p = Parser {
         chars: &chars,
         pos: 0,
+        depth: 0,
     };
     p.ws();
     let v = p.value()?;
@@ -185,6 +192,7 @@ pub fn parse(input: &str) -> Result<Json, String> {
 struct Parser<'a> {
     chars: &'a [char],
     pos: usize,
+    depth: usize,
 }
 
 impl Parser<'_> {
@@ -197,6 +205,17 @@ impl Parser<'_> {
 
     fn value(&mut self) -> Result<Json, String> {
         self.ws();
+        let container = matches!(self.chars.get(self.pos), Some('{' | '['));
+        if container && self.depth >= 256 {
+            return Err("JSON nesting limit exceeded (256)".to_owned());
+        }
+        self.depth += usize::from(container);
+        let result = self.value_inner();
+        self.depth -= usize::from(container);
+        result
+    }
+
+    fn value_inner(&mut self) -> Result<Json, String> {
         match self.chars.get(self.pos) {
             Some('{') => self.object(),
             Some('[') => self.array(),
@@ -287,52 +306,10 @@ impl Parser<'_> {
                 }
                 Some('\\') => {
                     self.pos += 1;
-                    let esc =
-                        self.chars.get(self.pos).ok_or("trailing backslash")?;
-                    self.pos += 1;
-                    match esc {
-                        'n' => out.push('\n'),
-                        't' => out.push('\t'),
-                        'r' => out.push('\r'),
-                        'b' => out.push('\u{8}'),
-                        'f' => out.push('\u{c}'),
-                        'u' => {
-                            let cp = self.hex4()?;
-                            // A non-BMP character is escaped as a
-                            // surrogate *pair*; neither half is a
-                            // `char` on its own. Python's `json.dumps`
-                            // escapes non-ASCII by default, so a client
-                            // sending an emoji arrives this way.
-                            let cp = if (0xD800..0xDC00).contains(&cp) {
-                                if !matches!(
-                                    self.chars.get(self.pos..self.pos + 2),
-                                    Some(['\\', 'u'])
-                                ) {
-                                    return Err(
-                                        "lone high surrogate".to_owned()
-                                    );
-                                }
-                                self.pos += 2;
-                                let lo = self.hex4()?;
-                                if !(0xDC00..0xE000).contains(&lo) {
-                                    return Err(
-                                        "high surrogate not followed by a \
-                                         low surrogate"
-                                            .to_owned(),
-                                    );
-                                }
-                                0x1_0000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
-                            } else if (0xDC00..0xE000).contains(&cp) {
-                                return Err("lone low surrogate".to_owned());
-                            } else {
-                                cp
-                            };
-                            out.push(
-                                char::from_u32(cp).ok_or("bad code point")?,
-                            );
-                        }
-                        c => out.push(*c),
-                    }
+                    out.push(self.escape()?);
+                }
+                Some(c) if *c < '\u{20}' => {
+                    return Err("unescaped control in string".to_owned());
                 }
                 Some(c) => {
                     out.push(*c);
@@ -340,6 +317,45 @@ impl Parser<'_> {
                 }
             }
         }
+    }
+
+    fn escape(&mut self) -> Result<char, String> {
+        let esc = *self.chars.get(self.pos).ok_or("trailing backslash")?;
+        self.pos += 1;
+        match esc {
+            'u' => self.unicode_escape(),
+            _ => simple_escape(esc)
+                .ok_or_else(|| "invalid string escape".to_owned()),
+        }
+    }
+
+    fn unicode_escape(&mut self) -> Result<char, String> {
+        let cp = self.hex4()?;
+        // A non-BMP character is escaped as a surrogate *pair*; neither
+        // half is a `char` on its own. Python's `json.dumps` escapes
+        // non-ASCII by default, so a client sending an emoji arrives
+        // this way.
+        let cp = if (0xD800..0xDC00).contains(&cp) {
+            if !matches!(
+                self.chars.get(self.pos..self.pos + 2),
+                Some(['\\', 'u'])
+            ) {
+                return Err("lone high surrogate".to_owned());
+            }
+            self.pos += 2;
+            let lo = self.hex4()?;
+            if !(0xDC00..0xE000).contains(&lo) {
+                return Err(
+                    "high surrogate not followed by a low surrogate".to_owned()
+                );
+            }
+            0x1_0000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
+        } else if (0xDC00..0xE000).contains(&cp) {
+            return Err("lone low surrogate".to_owned());
+        } else {
+            cp
+        };
+        char::from_u32(cp).ok_or_else(|| "bad code point".to_owned())
     }
 
     /// Read exactly four hex digits of a `\\u` escape.
@@ -364,6 +380,9 @@ impl Parser<'_> {
             self.pos += 1;
         }
         let text: String = self.chars[start..self.pos].iter().collect();
+        if !valid_number(&text) {
+            return Err(format!("invalid number `{text}`"));
+        }
         let value: f64 = text
             .parse()
             .map_err(|_| format!("invalid number `{text}`"))?;
@@ -383,219 +402,53 @@ impl Parser<'_> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn round_trip(text: &str) -> String {
-        parse(text).expect("valid JSON").to_json()
-    }
-
-    #[test]
-    fn a_number_too_large_for_f64_is_refused() {
-        // Grammatically valid JSON that `f64` cannot hold. Parsing it
-        // to infinity and serialising that produced output which would
-        // not parse -- the round trip silently broke.
-        //
-        // Fuzzing found it on `-3e805`. Both directions are checked
-        // because the overflow is symmetric and only one sign was
-        // reported.
-        for text in ["1e999", "-3e805", "1e309"] {
-            let err = parse(text).expect_err("should be refused");
-            assert!(
-                err.contains("out of range"),
-                "{text} gave the wrong error: {err}"
-            );
-        }
-        // The largest finite double still parses, so the check bounds
-        // the value rather than the exponent's length.
-        assert!(parse("1.7976931348623157e308").is_ok());
-    }
-
-    #[test]
-    fn scalars_round_trip() {
-        assert_eq!(round_trip("null"), "null");
-        assert_eq!(round_trip("true"), "true");
-        assert_eq!(round_trip("false"), "false");
-        assert_eq!(round_trip("\"hi\""), "\"hi\"");
-    }
-
-    #[test]
-    fn integral_numbers_print_without_a_fraction() {
-        // MCP ids are compared by clients; `2.0` where `2` was sent is
-        // a different JSON value to a strict client.
-        assert_eq!(round_trip("2"), "2");
-        assert_eq!(round_trip("-17"), "-17");
-        assert_eq!(round_trip("0"), "0");
-        assert_eq!(round_trip("1.5"), "1.5");
-        assert_eq!(round_trip("1e3"), "1000");
-    }
-
-    #[test]
-    fn very_large_integral_numbers_do_not_wrap() {
-        // Beyond 1e15 the i64 cast would be lossy, so the float path
-        // must take over rather than silently truncating.
-        let out = Json::Number(1e300).to_json();
-        assert!(out.starts_with('1'), "{out}");
-        assert!(parse(&out).is_ok(), "{out} did not re-parse");
-    }
-
-    #[test]
-    fn objects_serialise_in_a_stable_order() {
-        let text = round_trip(r#"{"b":1,"a":2}"#);
-        assert_eq!(text, r#"{"a":2,"b":1}"#);
-    }
-
-    #[test]
-    fn nesting_round_trips() {
-        let src = r#"{"a":[1,[2,{"b":null}]],"c":{}}"#;
-        assert_eq!(round_trip(src), src);
-    }
-
-    #[test]
-    fn string_escapes_decode() {
-        let v = parse(r#""a\nb\tc\"d\\e\/f\r\b\f""#).expect("valid");
-        assert_eq!(v.as_str(), Some("a\nb\tc\"d\\e/f\r\u{8}\u{c}"));
-    }
-
-    #[test]
-    fn control_characters_are_escaped_on_output() {
-        // XML documents do contain these, and an unescaped control
-        // character makes the whole response unparseable to the client.
-        let out = Json::str("a\u{1}b\u{1f}").to_json();
-        assert_eq!(out, r#""a\u0001b\u001f""#);
-        assert_eq!(
-            parse(&out).expect("re-parses").as_str(),
-            Some("a\u{1}b\u{1f}")
-        );
-    }
-
-    #[test]
-    fn surrogate_pairs_decode_to_one_character() {
-        // Python's `json.dumps` escapes non-ASCII by default, so a
-        // client written against it sends emoji this way.
-        assert_eq!(
-            parse(r#""\ud83d\ude00""#).expect("valid").as_str(),
-            Some("\u{1f600}")
-        );
-        assert_eq!(
-            parse(r#""a\ud83d\ude00b""#).expect("valid").as_str(),
-            Some("a\u{1f600}b")
-        );
-    }
-
-    #[test]
-    fn bmp_escapes_still_decode() {
-        assert_eq!(
-            parse(r#""\u00e9\u4e2d""#).expect("valid").as_str(),
-            Some("é中")
-        );
-    }
-
-    #[test]
-    fn lone_surrogates_are_rejected() {
-        // Rather than panicking or emitting an invalid character.
-        assert!(parse(r#""\ud83d""#).is_err());
-        assert!(parse(r#""\ude00""#).is_err());
-        assert!(parse(r#""\ud83dx""#).is_err());
-        assert!(parse(r#""\ud83d\u0041""#).is_err());
-    }
-
-    #[test]
-    fn raw_utf8_passes_through_unescaped() {
-        let src = "\"héllo 😀 中\"";
-        assert_eq!(round_trip(src), src);
-    }
-
-    #[test]
-    fn malformed_input_is_an_error_not_a_panic() {
-        for bad in [
-            "",
-            "{",
-            "[",
-            "{\"a\"}",
-            "{\"a\":}",
-            "[1,",
-            "\"unterminated",
-            "tru",
-            "nul",
-            "\"\\",
-            "\"\\u00\"",
-            "\"\\uZZZZ\"",
-            "@",
-            "{\"a\":1}trailing",
-            "1 2",
-        ] {
-            assert!(parse(bad).is_err(), "`{bad}` should not parse");
-        }
-    }
-
-    #[test]
-    fn whitespace_around_values_is_ignored() {
-        assert_eq!(
-            round_trip(" \n\t{ \"a\" : [ 1 , 2 ] }\r\n"),
-            r#"{"a":[1,2]}"#
-        );
-    }
-
-    #[test]
-    fn get_and_as_str_are_type_safe() {
-        let v = parse(r#"{"a":"x","b":1}"#).expect("valid");
-        assert_eq!(v.get("a").and_then(Json::as_str), Some("x"));
-        assert_eq!(v.get("b").and_then(Json::as_str), None);
-        assert!(v.get("missing").is_none());
-        assert!(Json::Null.get("a").is_none());
-        assert!(Json::Null.as_str().is_none());
-    }
-
-    #[test]
-    fn object_builder_matches_parsed_form() {
-        let built =
-            Json::object(vec![("a", Json::str("x")), ("b", Json::Number(1.0))]);
-        assert_eq!(built.to_json(), r#"{"a":"x","b":1}"#);
-    }
-
-    #[test]
-    fn deep_nesting_does_not_overflow_the_stack() {
-        let depth = 200;
-        let src = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
-        assert!(parse(&src).is_ok());
+fn simple_escape(escaped: char) -> Option<char> {
+    match escaped {
+        'n' => Some('\n'),
+        't' => Some('\t'),
+        'r' => Some('\r'),
+        'b' => Some('\u{8}'),
+        'f' => Some('\u{c}'),
+        c if ['"', '\\', '/'].contains(&c) => Some(c),
+        _ => None,
     }
 }
 
-#[cfg(test)]
-mod escape_tests {
-    use super::*;
-
-    #[test]
-    fn every_escape_survives_a_round_trip() {
-        // Each of these has its own arm on both the reading and the
-        // writing side, and a mismatch between the two corrupts the
-        // document silently rather than failing.
-        for s in [
-            "back\\slash",
-            "carriage\rreturn",
-            "tab\there",
-            "quote\"inside",
-            "new\nline",
-            "all\\ \" \n \r \t together",
-        ] {
-            let encoded = Json::str(s).to_json();
-            assert_eq!(
-                parse(&encoded).expect("re-parses").as_str(),
-                Some(s),
-                "round trip failed for {s:?} via {encoded}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_structural_error_names_what_was_expected() {
-        // A bare "invalid JSON" would give a client nothing to act on.
-        let e = parse(r#"{"a":1 "b":2}"#).expect_err("malformed");
-        assert!(e.contains(',') || e.contains('}'), "{e}");
-
-        let e = parse("[1 2]").expect_err("malformed");
-        assert!(e.contains(',') || e.contains(']'), "{e}");
-    }
+fn digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
+
+fn valid_mantissa(text: &str) -> bool {
+    let (integer, fraction) = text
+        .split_once('.')
+        .map_or((text, None), |(integer, fraction)| {
+            (integer, Some(fraction))
+        });
+    digits(integer)
+        && !(integer.len() > 1 && integer.starts_with('0'))
+        && fraction.is_none_or(digits)
+}
+
+fn valid_number(text: &str) -> bool {
+    let unsigned = text.strip_prefix('-').unwrap_or(text);
+    let mut parts = unsigned.split(['e', 'E']);
+    let mantissa = parts.next().unwrap_or_default();
+    let exponent = parts.next();
+    parts.next().is_none()
+        && valid_mantissa(mantissa)
+        && exponent.is_none_or(|value| {
+            let unsigned = value
+                .strip_prefix('+')
+                .or_else(|| value.strip_prefix('-'))
+                .unwrap_or(value);
+            digits(unsigned)
+        })
+}
+
+#[cfg(test)]
+#[path = "tests/basic.rs"]
+mod tests;
+
+#[cfg(test)]
+#[path = "tests/escapes.rs"]
+mod escape_tests;

@@ -10,7 +10,9 @@
 //! `oxml-mcp` and `oxml-lsp` — a request of a few hundred bytes, or a
 //! `tools/list` reply of a few kilobytes.
 //!
-//! The shapes below are chosen to answer it. `string-heavy` and
+//! The shapes below establish workload baselines, not an isolated
+//! measurement of copying cost. A paired borrowed implementation is
+//! needed to answer the ownership question. `string-heavy` and
 //! `number-heavy` hold the same number of entries but differ in how
 //! much of each entry is string content; they are *not* the same byte
 //! size, so the comparison is normalised per byte rather than taken
@@ -69,8 +71,8 @@ fn string_heavy(n: usize) -> String {
 /// The same shape and entry count, but numeric rather than textual.
 ///
 /// The point of the pair: they differ in how much of each entry is
-/// string content, so the per-byte gap between them is what owning
-/// the strings costs.
+/// string content. The per-byte gap is a workload comparison, not
+/// an isolated measurement of string ownership.
 fn number_heavy(n: usize) -> String {
     let mut s = String::from("[");
     for i in 0..n {
@@ -149,9 +151,8 @@ fn main() {
         println!("  {name:<22} {:>8.3} µs", secs * 1e6);
     }
 
-    // The roadmap's question, answered rather than left open. If
-    // owning every string dominated, the string-heavy shape would be
-    // markedly slower per byte than the numeric one.
+    // These are different shapes. Their ratio cannot separate string
+    // allocation/copying from numeric conversion and structural costs.
     let s = parsed.iter().find(|(n, _)| n == "string-heavy (500)");
     let n = parsed.iter().find(|(n, _)| n == "number-heavy (500)");
     if let (Some((_, sv)), Some((_, nv))) = (s, n) {
