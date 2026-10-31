@@ -56,7 +56,7 @@ compete.
 
 ```toml
 [dependencies]
-oxml-json = "0.0.11"
+oxml-json = "0.0.12"
 ```
 
 ## Quick Start

@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Every member of the [oxml](https://github.com/sebastienrousseau/oxml)
 suite ships the same version number.
 
+## [0.0.12] - 2026-10-31
+
+### Changed
+
+- **Ecosystem release cycle v0.0.12.** Synchronize package and fuzz
+  harness metadata to `0.0.12` across the `oxml` suite.
+- **Automated GitHub release pipeline.** Add the `release-page` workflow
+  job to verify the published crates.io archive, generate CycloneDX SBOMs
+  and SHA-256 checksums, and attach SLSA build provenance attestations.
+- **Scorecard pull-request SARIF parity.** Normalize `pull_request`
+  Scorecard SARIF output so `supply-chain/branch-protection` and
+  `supply-chain/online-scm` configurations are always reported.
+- **CI and release action updates.** Advance `Swatinem/rust-cache` to
+  v2.9.3, `taiki-e/install-action` to v2.88.0, `github/codeql-action` to
+  v4.39.1, and `rust-lang/crates-io-auth-action` to v1.0.6.
+
 ## [0.0.11] - 2026-10-17
 
 ### Changed
