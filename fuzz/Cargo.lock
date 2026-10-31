@@ -71,11 +71,11 @@ dependencies = [
 
 [[package]]
 name = "oxml-json"
-version = "0.0.12"
+version = "0.0.13"
 
 [[package]]
 name = "oxml-json-fuzz"
-version = "0.0.12"
+version = "0.0.13"
 dependencies = [
  "libfuzzer-sys",
  "oxml-json",
